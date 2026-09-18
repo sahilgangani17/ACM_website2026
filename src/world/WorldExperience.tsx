@@ -1,0 +1,221 @@
+import React, { useRef, useMemo, useEffect } from 'react';
+import * as THREE from 'three';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Globe } from './globe/Globe';
+import { GlobeToCityTransition } from './transition/GlobeToCityTransition';
+import { CityEnvironment } from '../3d/city/CityEnvironment';
+import { Road } from '../3d/road/Road';
+import { CityBlock } from '../3d/city/CityBlock';
+import { DestinationBuilding } from '../3d/city/DestinationBuilding';
+import { TrafficSystem } from '../3d/vehicles/TrafficSystem';
+import { DroneSystem } from '../3d/vehicles/DroneSystem';
+import { CityParticles } from '../3d/atmosphere/CityParticles';
+import { DebugCameraVisualizer } from '../3d/camera/DebugCameraVisualizer';
+import { CityCameraController } from '../3d/camera/CityCamera';
+import { CameraRouteEngine } from '../data/cityRoute';
+import { useWorldStore } from './state/useWorldStore';
+import { useCityStore } from '../state/useCityStore';
+import { QUALITY_PRESETS } from '../utils/quality';
+
+// Master Camera Loop Handler managing ownership between World (Globe/Descent) and City Exploration
+const MasterCameraLoop: React.FC = () => {
+  const { camera } = useThree();
+  const cityControllerRef = useRef<CityCameraController | null>(null);
+
+  // World camera targets
+  const worldPos = useRef(new THREE.Vector3(0, 8, 48));
+  const worldTarget = useRef(new THREE.Vector3(0, 0, 0));
+
+  useEffect(() => {
+    cityControllerRef.current = new CityCameraController();
+    return () => {
+      cityControllerRef.current?.dispose();
+    };
+  }, []);
+
+  useFrame((_, delta) => {
+    if (!(camera instanceof THREE.PerspectiveCamera)) return;
+
+    const worldStore = useWorldStore.getState();
+    const worldMode = worldStore.worldMode;
+    const isWarping = worldStore.isWarping;
+    const warpProgress = worldStore.warpProgress;
+    const warpDirection = worldStore.warpDirection;
+    const worldProgress = worldStore.worldProgress;
+
+    if (worldMode === 'CITY_EXPLORATION' && !isWarping) {
+      // 1. Handover: Existing City Engine owns the camera completely!
+      camera.fov = 55;
+      camera.updateProjectionMatrix();
+      cityControllerRef.current?.update(camera, delta);
+    } else if (isWarping) {
+      // 2. Dedicated 1-Second Cinematic Warp Descent / Ascent
+      const easeT = THREE.MathUtils.smoothstep(warpProgress, 0, 1);
+      const easeCubic = warpProgress < 0.5
+        ? 4 * warpProgress * warpProgress * warpProgress
+        : 1 - Math.pow(-2 * warpProgress + 2, 3) / 2;
+
+      // Dynamic FOV pulse for hyper-speed sensation (peaks at 70 deg)
+      const fovPulse = Math.sin(warpProgress * Math.PI) * 16;
+      camera.fov = 55 + fovPulse;
+      camera.updateProjectionMatrix();
+
+      // Start: Mumbai Focal Framing | End: Boulevard Start [0, 5.5, 60], lookAt [0, 4.5, -20]
+      const startPos = new THREE.Vector3(8.0, 11.0, 26.0);
+      const startTarget = new THREE.Vector3(4.5, 3.0, 12.0);
+
+      const endPos = new THREE.Vector3(0, 5.5, 60.0);
+      const endTarget = new THREE.Vector3(0, 4.5, -20.0);
+
+      if (warpDirection === 'TO_CITY') {
+        worldPos.current.lerpVectors(startPos, endPos, easeCubic);
+        worldTarget.current.lerpVectors(startTarget, endTarget, easeCubic);
+      } else {
+        worldPos.current.lerpVectors(endPos, startPos, easeCubic);
+        worldTarget.current.lerpVectors(endTarget, startTarget, easeCubic);
+      }
+
+      camera.position.copy(worldPos.current);
+      camera.lookAt(worldTarget.current);
+    } else {
+      // 3. Globe Interactive Exploration (Orbital -> Mumbai Focus)
+      camera.fov = 55;
+      camera.updateProjectionMatrix();
+
+      if (worldProgress < 0.35) {
+        // Stage A: Full Globe Orbital Framing
+        const orbitT = worldProgress / 0.35;
+        worldPos.current.set(
+          Math.sin(orbitT * 0.4) * 10,
+          8 + orbitT * 2,
+          48 - orbitT * 8
+        );
+        worldTarget.current.set(0, 0, 0);
+      } else {
+        // Stage B: Focus on Mumbai / DJ Sanghvi Node
+        const focusT = (worldProgress - 0.35) / 0.30;
+        const easeFocus = THREE.MathUtils.smoothstep(focusT, 0, 1);
+        worldPos.current.set(
+          THREE.MathUtils.lerp(3.5, 8.0, easeFocus),
+          THREE.MathUtils.lerp(10.0, 11.0, easeFocus),
+          THREE.MathUtils.lerp(40.0, 26.0, easeFocus)
+        );
+        worldTarget.current.set(
+          THREE.MathUtils.lerp(0, 4.5, easeFocus),
+          THREE.MathUtils.lerp(0, 3.0, easeFocus),
+          THREE.MathUtils.lerp(0, 12.0, easeFocus)
+        );
+      }
+
+      camera.position.lerp(worldPos.current, delta * 4.5);
+      camera.lookAt(worldTarget.current);
+    }
+  });
+
+  return null;
+};
+
+export const WorldExperience: React.FC = () => {
+  const qualityTier = useCityStore((s) => s.qualityTier);
+  const destinations = useCityStore((s) => s.destinations);
+  const isSpaceActive = useWorldStore((s) => s.isSpaceActive);
+  const isWarping = useWorldStore((s) => s.isWarping);
+  const warpProgress = useWorldStore((s) => s.warpProgress);
+  const warpDirection = useWorldStore((s) => s.warpDirection);
+  const worldMode = useWorldStore((s) => s.worldMode);
+  const preset = QUALITY_PRESETS[qualityTier];
+
+  const routeEngine = useMemo(() => new CameraRouteEngine(), []);
+
+  // Compute 3D world positions for landmark destination buildings
+  const destinationPositions = useMemo(() => {
+    return destinations.map((dest) => {
+      const pos = routeEngine.getSidePosition(
+        dest.routeProgress,
+        dest.side,
+        dest.lateralOffset,
+        dest.verticalOffset || 0,
+        new THREE.Vector3()
+      );
+      const sideRotation: [number, number, number] =
+        dest.side === 'left' ? [0, Math.PI / 2.5, 0] : [0, -Math.PI / 2.5, 0];
+      return {
+        dest,
+        position: [pos.x, pos.y, pos.z] as [number, number, number],
+        rotation: sideRotation,
+      };
+    });
+  }, [destinations, routeEngine]);
+
+  // Compute clean globe opacity during 1s warp
+  const globeOpacity = useMemo(() => {
+    if (!isWarping) return isSpaceActive ? 1.0 : 0.0;
+    if (warpDirection === 'TO_CITY') {
+      return Math.max(0, 1.0 - warpProgress * 2.2); // Fades out cleanly in first 0.45s
+    } else {
+      return Math.min(1.0, warpProgress * 2.0);
+    }
+  }, [isWarping, warpProgress, warpDirection, isSpaceActive]);
+
+  const showCity = worldMode === 'CITY_EXPLORATION' || (isWarping && warpProgress > 0.35);
+
+  return (
+    <div className="w-full h-screen fixed inset-0 bg-[#02040a] overflow-hidden select-none">
+      <Canvas
+        camera={{ position: [0, 8, 48], fov: 55, near: 0.1, far: 1200 }}
+        dpr={preset.dpr}
+        gl={{
+          antialias: true,
+          alpha: false,
+          powerPreference: 'high-performance',
+          stencil: false,
+          depth: true,
+        }}
+      >
+        <MasterCameraLoop />
+
+        {/* 1. SCENE A: Space & Globe (Strictly unmounted when in City) */}
+        {isSpaceActive && (
+          <group name="space-globe-scene">
+            <Globe radius={15} opacity={globeOpacity} />
+            <GlobeToCityTransition />
+          </group>
+        )}
+
+        {/* 2. SCENE B: Digital City Subsystem (Active in city mode & warp entry) */}
+        {showCity && (
+          <group name="digital-city-scene">
+            <CityEnvironment />
+            <CityParticles />
+            <Road />
+
+            {/* City Blocks along Boulevard */}
+            {[-100, -250, -400, -550, -700].map((z, idx) => (
+              <React.Fragment key={z}>
+                <CityBlock position={[0, 0, z]} side="left" seed={idx * 13 + 7} />
+                <CityBlock position={[0, 0, z]} side="right" seed={idx * 17 + 3} />
+              </React.Fragment>
+            ))}
+
+            {/* Landmark Destination Buildings */}
+            {destinationPositions.map(({ dest, position, rotation }) => (
+              <DestinationBuilding
+                key={dest.id}
+                destination={dest}
+                position={position}
+                rotation={rotation}
+              />
+            ))}
+
+            {/* Traffic and Flying Drones */}
+            <TrafficSystem />
+            <DroneSystem />
+
+            {/* Debug Route Gizmos */}
+            <DebugCameraVisualizer />
+          </group>
+        )}
+      </Canvas>
+    </div>
+  );
+};
