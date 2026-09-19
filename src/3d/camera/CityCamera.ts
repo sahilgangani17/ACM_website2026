@@ -25,6 +25,10 @@ export class CityCameraController {
   private mouseOffset: THREE.Vector2 = new THREE.Vector2();
   private targetMouseOffset: THREE.Vector2 = new THREE.Vector2();
 
+  // Internal high-precision camera damping state
+  private internalDampedProgress: number = 0.0;
+  private lastSyncedProgress: number = 0.0;
+
   constructor() {
     this.routeEngine = new CameraRouteEngine();
     
@@ -48,20 +52,33 @@ export class CityCameraController {
     const store = useCityStore.getState();
     const mode = store.cityMode;
     const targetScroll = store.scrollProgress;
-    const currentDamped = store.dampedProgress;
 
     // Smooth damp scroll progress with weight (inertia)
     const dampFactor = store.reducedMotion ? 8.0 : 3.5;
-    const newDampedProgress = THREE.MathUtils.damp(currentDamped, targetScroll, dampFactor, delta);
-    store.setDampedProgress(newDampedProgress);
+    this.internalDampedProgress = THREE.MathUtils.damp(
+      this.internalDampedProgress,
+      targetScroll,
+      dampFactor,
+      delta
+    );
+
+    // Only sync to Zustand store when change is meaningful to eliminate 120Hz React re-render thrashing
+    if (
+      Math.abs(this.internalDampedProgress - this.lastSyncedProgress) > 0.002 ||
+      (this.internalDampedProgress < 0.002 && this.lastSyncedProgress !== 0) ||
+      (this.internalDampedProgress > 0.998 && this.lastSyncedProgress !== 1)
+    ) {
+      this.lastSyncedProgress = this.internalDampedProgress;
+      store.setDampedProgress(this.internalDampedProgress);
+    }
 
     // Damp mouse parallax
     this.mouseOffset.lerp(this.targetMouseOffset, delta * 3);
 
     if (mode === 'EXPLORATION' || mode === 'DESTINATION_SELECTED') {
       // 1. Exploration Mode: Follow Catmull-Rom spline with look-ahead curve anticipation
-      this.routeEngine.getPosition(newDampedProgress, this.targetPosition);
-      this.routeEngine.getLookAt(newDampedProgress, 0.05, this.targetLookAt);
+      this.routeEngine.getPosition(this.internalDampedProgress, this.targetPosition);
+      this.routeEngine.getLookAt(this.internalDampedProgress, 0.05, this.targetLookAt);
 
       // Add subtle mouse parallax to target
       this.targetLookAt.x += this.mouseOffset.x * 1.2;
@@ -92,24 +109,23 @@ export class CityCameraController {
         const frontDir = new THREE.Vector3(Math.sin(facingAngle), 0, Math.cos(facingAngle));
 
         // True 3/4 architectural hero perspective:
-        // Position camera back on boulevard curb (44 units out) and upstream along road (26 units)
-        // with elevated cinematic vantage (15 units) to reveal building facade, illuminated canopy, and entrance steps
-        const camOutDist = 44.0;
-        const camZOffset = 26.0;
-        const camElevation = 15.0;
+        // Position camera back on boulevard curb (58 units out) and upstream along road (28 units)
+        // with elevated vantage (22 units) to frame the full monumental building facade
+        const camOutDist = 58.0;
+        const camZOffset = 28.0;
+        const camElevation = 22.0;
         this.focusTargetPosition.copy(landmarkWorldPos)
           .addScaledVector(frontDir, camOutDist)
           .add(new THREE.Vector3(0, 0, camZOffset))
           .setY(camElevation);
 
-        // Look at center of entrance lobby & glowing neon portal
-        // Offset slightly toward camera right so the building is framed elegantly in the left-center, clear of right HUD panel
+        // Look at center-mid of building & glowing facade, offset away from the right-side HUD panel
         const camRight = new THREE.Vector3(frontDir.z, 0, -frontDir.x);
         this.focusTargetLookAt.copy(landmarkWorldPos)
-          .add(new THREE.Vector3(0, 12.0, 0))
-          .addScaledVector(camRight, 5.0);
+          .add(new THREE.Vector3(0, 24.0, 0))
+          .addScaledVector(camRight, 4.0);
 
-        // Continuous smooth zoom-in glide (matching the silky feel of zoom-out)
+        // Continuous smooth zoom-in glide
         const zoomLerp = delta * 3.5;
         this.currentPosition.lerp(this.focusTargetPosition, zoomLerp);
         this.currentTarget.lerp(this.focusTargetLookAt, zoomLerp);

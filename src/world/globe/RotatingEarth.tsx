@@ -170,11 +170,11 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
     let lastTime = performance.now();
 
     const render = (time: number) => {
-      // If completely invisible in city exploration and not warping, skip render to save 100% CPU/GPU
+      // If completely invisible in city exploration or during warp descent, skip render to save 100% CPU
+      const store = useWorldStore.getState();
       if (
-        opacityRef.current <= 0.001 &&
-        useWorldStore.getState().worldMode === 'CITY_EXPLORATION' &&
-        !useWorldStore.getState().isWarping
+        (opacityRef.current <= 0.05 && store.worldMode === 'CITY_EXPLORATION' && !store.isWarping) ||
+        (store.isWarping && store.warpDirection === 'TO_CITY' && opacityRef.current < 0.5)
       ) {
         animFrameId = requestAnimationFrame(render);
         return;
@@ -434,7 +434,7 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`fixed inset-0 select-none ${className}`}
+      className={`fixed inset-0 select-none transition-opacity duration-700 ease-out ${className}`}
       style={{
         opacity,
         pointerEvents: opacity > 0.05 ? 'auto' : 'none',

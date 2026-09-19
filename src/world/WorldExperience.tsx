@@ -30,6 +30,7 @@ const MasterCameraLoop: React.FC = () => {
   const warpOriginPos = useRef(new THREE.Vector3());
   const warpOriginTarget = useRef(new THREE.Vector3());
   const wasWarpingRef = useRef(false);
+  const warpElapsed = useRef(0);
 
   useEffect(() => {
     cityControllerRef.current = new CityCameraController();
@@ -44,12 +45,12 @@ const MasterCameraLoop: React.FC = () => {
     const worldStore = useWorldStore.getState();
     const worldMode = worldStore.worldMode;
     const isWarping = worldStore.isWarping;
-    const warpProgress = worldStore.warpProgress;
     const warpDirection = worldStore.warpDirection;
     const worldProgress = worldStore.worldProgress;
 
     // Cache origin camera position the exact frame a warp initiates
     if (!wasWarpingRef.current && isWarping) {
+      warpElapsed.current = 0;
       warpOriginPos.current.copy(camera.position);
       const forward = new THREE.Vector3();
       camera.getWorldDirection(forward);
@@ -63,13 +64,17 @@ const MasterCameraLoop: React.FC = () => {
       camera.updateProjectionMatrix();
       cityControllerRef.current?.update(camera, delta);
     } else if (isWarping) {
-      // 2. Dedicated Cinematic Warp Descent / Ascent
-      const easeCubic = warpProgress < 0.5
-        ? 4 * warpProgress * warpProgress * warpProgress
-        : 1 - Math.pow(-2 * warpProgress + 2, 3) / 2;
+      // 2. High-Precision Three.js Warp Descent / Ascent (Zero React overhead)
+      const WARP_DURATION = warpDirection === 'TO_CITY' ? 1.25 : 1.35;
+      warpElapsed.current += delta;
+      const progress = Math.min(1.0, warpElapsed.current / WARP_DURATION);
 
-      // Dynamic FOV pulse for hyper-speed sensation (peaks at 70 deg)
-      const fovPulse = Math.sin(warpProgress * Math.PI) * 15;
+      const easeCubic = progress < 0.5
+        ? 4 * progress * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+      // Dynamic FOV pulse for hyper-speed sensation (peaks at 72 deg)
+      const fovPulse = Math.sin(progress * Math.PI) * 16;
       camera.fov = 55 + fovPulse;
       camera.updateProjectionMatrix();
 
@@ -108,6 +113,16 @@ const MasterCameraLoop: React.FC = () => {
 
       camera.position.copy(worldPos.current);
       camera.lookAt(worldTarget.current);
+
+      // Seamless completion milestone dispatch
+      if (progress >= 1.0) {
+        warpElapsed.current = 0;
+        if (warpDirection === 'TO_CITY') {
+          worldStore.completeWarpToCity();
+        } else {
+          worldStore.completeWarpToGlobe();
+        }
+      }
     } else {
       // 3. Globe Interactive Exploration (Orbital -> Mumbai Focus)
       camera.fov = 55;
@@ -151,7 +166,6 @@ export const WorldExperience: React.FC = () => {
   const destinations = useCityStore((s) => s.destinations);
   const isSpaceActive = useWorldStore((s) => s.isSpaceActive);
   const isWarping = useWorldStore((s) => s.isWarping);
-  const warpProgress = useWorldStore((s) => s.warpProgress);
   const warpDirection = useWorldStore((s) => s.warpDirection);
   const worldMode = useWorldStore((s) => s.worldMode);
   const preset = QUALITY_PRESETS[qualityTier];
@@ -178,24 +192,15 @@ export const WorldExperience: React.FC = () => {
     });
   }, [destinations, routeEngine]);
 
-  // Compute clean globe opacity during warp
-  const globeOpacity = useMemo(() => {
-    if (!isWarping) return isSpaceActive ? 1.0 : 0.0;
-    if (warpDirection === 'TO_CITY') {
-      // Fades out smoothly as camera penetrates atmosphere
-      return Math.max(0, 1.0 - warpProgress * 1.7);
-    } else {
-      // Ascending back to globe: fades in smoothly as camera pulls away
-      return Math.min(1.0, Math.max(0, (warpProgress - 0.15) / 0.55));
-    }
-  }, [isWarping, warpProgress, warpDirection, isSpaceActive]);
+  // Clean CSS-faded globe opacity during warp
+  const globeOpacity = isSpaceActive && (!isWarping || warpDirection === 'TO_GLOBE') ? 1.0 : 0.0;
 
-  // City stays active smoothly during warp descent & ascent (pre-warmed in WebGL, zero stutter)
+  // Pre-warmed City visibility in WebGL: always mounted, zero compilation stutter
   const showCity = worldMode === 'CITY_EXPLORATION' || isWarping;
 
   return (
     <div className="w-full h-screen fixed inset-0 bg-[#02040a] overflow-hidden select-none">
-      {/* 1. SCENE A: D3 Halftone Dot Earth (always mounted, zero restart lag) */}
+      {/* 1. SCENE A: D3 Halftone Dot Earth */}
       <RotatingEarth opacity={globeOpacity} />
 
       {/* 2. 3D WebGL Canvas: Warp streaks & City Boulevard */}
@@ -212,44 +217,40 @@ export const WorldExperience: React.FC = () => {
       >
         <MasterCameraLoop />
 
-        {/* 1-Second Cinematic Warp Streaks */}
-        {isSpaceActive && isWarping && (
-          <GlobeToCityTransition />
-        )}
+        {/* Cinematic Warp Streaks */}
+        {isWarping && <GlobeToCityTransition />}
 
-        {/* 2. SCENE B: Digital City Subsystem (Active in city mode & warp entry) */}
-        {showCity && (
-          <group name="digital-city-scene">
-            <CityEnvironment />
-            <CityParticles />
-            <Road />
+        {/* 2. SCENE B: Digital City Subsystem (Pre-warmed in WebGL, zero mounting hitch) */}
+        <group name="digital-city-scene" visible={showCity}>
+          <CityEnvironment />
+          <CityParticles />
+          <Road />
 
-            {/* City Blocks along Boulevard */}
-            {[-100, -250, -400, -550, -700].map((z, idx) => (
-              <React.Fragment key={z}>
-                <CityBlock position={[0, 0, z]} side="left" seed={idx * 13 + 7} />
-                <CityBlock position={[0, 0, z]} side="right" seed={idx * 17 + 3} />
-              </React.Fragment>
-            ))}
+          {/* City Blocks along Boulevard */}
+          {[-100, -250, -400, -550, -700].map((z, idx) => (
+            <React.Fragment key={z}>
+              <CityBlock position={[0, 0, z]} side="left" seed={idx * 13 + 7} />
+              <CityBlock position={[0, 0, z]} side="right" seed={idx * 17 + 3} />
+            </React.Fragment>
+          ))}
 
-            {/* Landmark Destination Buildings */}
-            {destinationPositions.map(({ dest, position, rotation }) => (
-              <DestinationBuilding
-                key={dest.id}
-                destination={dest}
-                position={position}
-                rotation={rotation}
-              />
-            ))}
+          {/* Landmark Destination Buildings */}
+          {destinationPositions.map(({ dest, position, rotation }) => (
+            <DestinationBuilding
+              key={dest.id}
+              destination={dest}
+              position={position}
+              rotation={rotation}
+            />
+          ))}
 
-            {/* Traffic and Flying Drones */}
-            <TrafficSystem />
-            <DroneSystem />
+          {/* Traffic and Flying Drones */}
+          <TrafficSystem />
+          <DroneSystem />
 
-            {/* Debug Route Gizmos */}
-            <DebugCameraVisualizer />
-          </group>
-        )}
+          {/* Debug Route Gizmos */}
+          <DebugCameraVisualizer />
+        </group>
       </Canvas>
     </div>
   );

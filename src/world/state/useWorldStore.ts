@@ -28,7 +28,9 @@ interface WorldState {
 
   // Action methods
   triggerWarpToCity: () => void;
+  completeWarpToCity: () => void;
   triggerWarpToGlobe: () => void;
+  completeWarpToGlobe: () => void;
   glideToTop: () => void;
   enterCityDirectly: () => void;
 }
@@ -62,9 +64,8 @@ export const useWorldStore = create<WorldState>((set, get) => ({
     set({
       worldProgress: clamped,
       worldMode: newMode,
-      mumbaiFocused: clamped >= 0.25,
+      mumbaiFocused: clamped >= 0.55,
       isSpaceActive: true,
-      isCityActive: false,
     });
   },
 
@@ -74,14 +75,12 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   setWarpProgress: (p) => set({ warpProgress: p }),
 
   isSpaceActive: true,
-  isCityActive: false,
+  isCityActive: true, // City pre-warmed for zero-hitch transition
   mumbaiFocused: false,
 
-  // Dedicated 1-Second High-Speed Cinematic Warp into City
+  // Dedicated High-Speed Cinematic Warp into City (Driven smoothly by Three.js useFrame)
   triggerWarpToCity: () => {
     if (get().isWarping || get().worldMode === 'CITY_EXPLORATION') return;
-
-    if (activeWarpAnim) cancelAnimationFrame(activeWarpAnim);
 
     set({
       isWarping: true,
@@ -91,46 +90,22 @@ export const useWorldStore = create<WorldState>((set, get) => ({
       isSpaceActive: true,
       isCityActive: true,
     });
-
-    const startTime = performance.now();
-    const duration = 1250; // Fluid 1.25s cinematic dive into city boulevard
-    const startP = get().worldProgress;
-
-    const animateWarp = (now: number) => {
-      const elapsed = now - startTime;
-      const progress = Math.min(1.0, elapsed / duration);
-
-      // Smoothly advance worldProgress to 1.0 alongside the dive
-      const currentWorldProgress = Math.min(1.0, startP + progress * (1.0 - startP));
-
-      set({
-        warpProgress: progress,
-        worldProgress: currentWorldProgress,
-      });
-
-      if (progress < 1.0) {
-        activeWarpAnim = requestAnimationFrame(animateWarp);
-      } else {
-        // Warp complete -> Full City Ownership
-        set({
-          isWarping: false,
-          warpProgress: 1.0,
-          worldMode: 'CITY_EXPLORATION',
-          isSpaceActive: false, // Space completely disabled
-          isCityActive: true,
-          worldProgress: 1.0,
-        });
-      }
-    };
-
-    activeWarpAnim = requestAnimationFrame(animateWarp);
   },
 
-  // Dedicated Cinematic Warp Ascent all the way back to Top Overview
+  completeWarpToCity: () => {
+    set({
+      isWarping: false,
+      warpProgress: 1.0,
+      worldMode: 'CITY_EXPLORATION',
+      isSpaceActive: false, // Space disabled
+      isCityActive: true,
+      worldProgress: 1.0,
+    });
+  },
+
+  // Dedicated Cinematic Warp Ascent back to Top Overview
   triggerWarpToGlobe: () => {
     if (get().isWarping) return;
-
-    if (activeWarpAnim) cancelAnimationFrame(activeWarpAnim);
 
     set({
       isWarping: true,
@@ -140,41 +115,20 @@ export const useWorldStore = create<WorldState>((set, get) => ({
       isSpaceActive: true,
       isCityActive: true,
     });
+  },
 
-    const startTime = performance.now();
-    const duration = 1350; // Fluid 1.35s cinematic ascent to top overview
-
-    const animateWarp = (now: number) => {
-      const elapsed = now - startTime;
-      const progress = Math.min(1.0, elapsed / duration);
-
-      // Smoothly bring worldProgress all the way from 0.85 down to 0.0 (top overview)
-      const currentWorldProgress = Math.max(0, 0.85 * (1 - progress));
-
-      set({
-        warpProgress: progress,
-        worldProgress: currentWorldProgress,
-      });
-
-      if (progress < 1.0) {
-        activeWarpAnim = requestAnimationFrame(animateWarp);
-      } else {
-        // Return complete -> All the way to top overview!
-        set({
-          isWarping: false,
-          warpProgress: 1.0,
-          worldMode: 'WORLD_INTRO',
-          worldProgress: 0.0, // Back to very top!
-          isSpaceActive: true,
-          isCityActive: false,
-          mumbaiFocused: false,
-        });
-        // Reset boulevard progression for fresh exploration on next descent
-        useCityStore.getState().setScrollProgress(0);
-      }
-    };
-
-    activeWarpAnim = requestAnimationFrame(animateWarp);
+  completeWarpToGlobe: () => {
+    set({
+      isWarping: false,
+      warpProgress: 1.0,
+      worldMode: 'WORLD_INTRO',
+      worldProgress: 0.0, // Back to very top!
+      isSpaceActive: true,
+      isCityActive: true,
+      mumbaiFocused: false,
+    });
+    // Reset boulevard progression for fresh exploration on next descent
+    useCityStore.getState().setScrollProgress(0);
   },
 
   // Smoothly glide remaining distance to top overview without getting stuck in between

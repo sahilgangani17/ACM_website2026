@@ -15,19 +15,24 @@ export const DroneSystem: React.FC = () => {
     for (let i = 0; i < maxDrones; i++) {
       list.push({
         id: i,
-        baseX: (Math.random() - 0.5) * 120,
-        baseY: 25 + Math.random() * 20,
-        baseZ: -50 - i * 60,
-        radius: 10 + Math.random() * 15,
-        speed: 0.5 + Math.random() * 0.8,
+        // Keep drones up high and to the sides so they don't block building views
+        baseX: (i % 2 === 0 ? 1 : -1) * (25 + (i * 12) % 35),
+        baseY: 35 + (i * 7) % 25,
+        baseZ: -80 - i * 65,
+        radius: 12 + (i % 5) * 3,
+        speed: 0.6 + (i % 4) * 0.2,
         color: i % 2 === 0 ? '#00f0ff' : '#a855f7',
       });
     }
     return list;
   }, [maxDrones]);
 
-  const droneGeom = useMemo(() => new THREE.OctahedronGeometry(1.2, 0), []);
-  const glowMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#00f0ff' }), []);
+  const bodyMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.3, metalness: 0.8 }),
+    []
+  );
+  const ledCyanMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#00f0ff' }), []);
+  const ledRedMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ff0055' }), []);
 
   useFrame(({ clock }) => {
     if (!groupRef.current) return;
@@ -39,8 +44,10 @@ export const DroneSystem: React.FC = () => {
 
       const angle = t * d.speed;
       child.position.x = d.baseX + Math.cos(angle) * d.radius;
-      child.position.y = d.baseY + Math.sin(angle * 1.5) * 3;
+      child.position.y = d.baseY + Math.sin(angle * 1.8) * 2;
       child.position.z = d.baseZ + Math.sin(angle) * d.radius;
+      child.rotation.y = -angle;
+      child.rotation.z = Math.sin(angle) * 0.15; // Bank into turn
     });
   });
 
@@ -48,18 +55,40 @@ export const DroneSystem: React.FC = () => {
     <group ref={groupRef} name="drone-system">
       {drones.map((d) => (
         <group key={d.id} position={[d.baseX, d.baseY, d.baseZ]}>
-          <mesh geometry={droneGeom}>
-            <primitive object={glowMat} attach="material" />
+          {/* Sleek Aerodynamic Drone Fuselage */}
+          <mesh castShadow>
+            <boxGeometry args={[1.6, 0.35, 1.2]} />
+            <primitive object={bodyMat} attach="material" />
           </mesh>
-          {/* Subtle Downward Searchlight Cone */}
-          <mesh position={[0, -4, 0]} rotation={[0, 0, 0]}>
-            <coneGeometry args={[2.5, 8, 16, 1, true]} />
-            <meshBasicMaterial
-              color={d.color}
-              transparent
-              opacity={0.15}
-              side={THREE.DoubleSide}
-            />
+
+          {/* 4 Rotor Arms */}
+          {[-0.9, 0.9].map((x) =>
+            [-0.7, 0.7].map((z) => (
+              <mesh key={`${x}-${z}`} position={[x, 0.1, z]}>
+                <cylinderGeometry args={[0.06, 0.06, 0.4, 6]} />
+                <primitive object={bodyMat} attach="material" />
+              </mesh>
+            ))
+          )}
+
+          {/* 4 Rotor Discs (Thin glowing discs) */}
+          {[-0.9, 0.9].map((x) =>
+            [-0.7, 0.7].map((z) => (
+              <mesh key={`prop-${x}-${z}`} position={[x, 0.28, z]}>
+                <cylinderGeometry args={[0.45, 0.45, 0.02, 12]} />
+                <primitive object={ledCyanMat} attach="material" />
+              </mesh>
+            ))
+          )}
+
+          {/* Nav Warning Beacon LED (Port / Starboard) */}
+          <mesh position={[-0.8, 0, 0]}>
+            <sphereGeometry args={[0.12, 6, 6]} />
+            <primitive object={ledRedMat} attach="material" />
+          </mesh>
+          <mesh position={[0.8, 0, 0]}>
+            <sphereGeometry args={[0.12, 6, 6]} />
+            <primitive object={ledCyanMat} attach="material" />
           </mesh>
         </group>
       ))}
