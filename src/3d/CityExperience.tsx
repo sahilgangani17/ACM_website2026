@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { CityEnvironment } from './city/CityEnvironment';
 import { Road } from './road/Road';
+import { WelcomeGate } from './road/WelcomeGate';
 import { CityBlock } from './city/CityBlock';
 import { DestinationBuilding } from './city/DestinationBuilding';
 import { TrafficSystem } from './vehicles/TrafficSystem';
@@ -83,6 +84,9 @@ export const CityExperience: React.FC = () => {
 
         {/* Boulevard Spine */}
         <Road />
+
+        {/* Welcome Gate Arch at Boulevard Entry */}
+        <WelcomeGate />
 
         {/* Procedural City Blocks along the Boulevard */}
         {[-100, -250, -400, -550, -700].map((z, idx) => (

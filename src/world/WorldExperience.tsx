@@ -5,6 +5,7 @@ import { RotatingEarth } from './globe/RotatingEarth';
 import { GlobeToCityTransition } from './transition/GlobeToCityTransition';
 import { CityEnvironment } from '../3d/city/CityEnvironment';
 import { Road } from '../3d/road/Road';
+import { WelcomeGate } from '../3d/road/WelcomeGate';
 import { CityBlock } from '../3d/city/CityBlock';
 import { DestinationBuilding } from '../3d/city/DestinationBuilding';
 import { TrafficSystem } from '../3d/vehicles/TrafficSystem';
@@ -225,6 +226,7 @@ export const WorldExperience: React.FC = () => {
           <CityEnvironment />
           <CityParticles />
           <Road />
+          <WelcomeGate />
 
           {/* City Blocks along Boulevard */}
           {[-100, -250, -400, -550, -700].map((z, idx) => (
