@@ -19,6 +19,7 @@ export class CityCameraController {
   private focusTargetPosition: THREE.Vector3 = new THREE.Vector3();
   private focusTargetLookAt: THREE.Vector3 = new THREE.Vector3();
   private focusProgress: number = 0; // 0 to 1 transition progress
+  private activeFocusDestId: string | null = null;
 
   // Mouse parallax offset (very subtle)
   private mouseOffset: THREE.Vector2 = new THREE.Vector2();
@@ -72,51 +73,62 @@ export class CityCameraController {
       this.currentTarget.lerp(this.targetLookAt, lerpSpeed);
 
       this.focusProgress = 0;
+      this.activeFocusDestId = null;
     } else if (mode === 'DESTINATION_FOCUS') {
-      // 2. Destination Focus Mode: Transition camera from road to focused building framing
+      // 2. Destination Focus Mode: Cinematic 3/4 hero camera glide focusing on building entrance
       const activeDest = store.activeDestination;
       if (activeDest) {
-        if (this.focusProgress === 0) {
-          // Initialize focus trajectory from current road position
-          this.focusStartPosition.copy(this.currentPosition);
-          this.focusStartTarget.copy(this.currentTarget);
+        // Calculate focus landmark entrance position in world coordinates
+        const landmarkWorldPos = this.routeEngine.getSidePosition(
+          activeDest.routeProgress,
+          activeDest.side,
+          activeDest.lateralOffset,
+          activeDest.verticalOffset || 0,
+          new THREE.Vector3()
+        );
 
-          // Calculate focus landmark entrance position
-          const landmarkWorldPos = this.routeEngine.getSidePosition(
-            activeDest.routeProgress,
-            activeDest.side,
-            activeDest.lateralOffset,
-            activeDest.verticalOffset || 0,
-            new THREE.Vector3()
-          );
+        // Building orientation angle (PI / 2.5 = 72 deg facing road)
+        const facingAngle = activeDest.side === 'left' ? Math.PI / 2.5 : -Math.PI / 2.5;
+        const frontDir = new THREE.Vector3(Math.sin(facingAngle), 0, Math.cos(facingAngle));
 
-          // Framing camera position slightly back and angled towards building entrance
-          const sideFactor = activeDest.side === 'left' ? -1 : 1;
-          this.focusTargetLookAt.copy(landmarkWorldPos).add(new THREE.Vector3(0, 10, 0));
-          this.focusTargetPosition.copy(landmarkWorldPos).add(
-            new THREE.Vector3(18 * sideFactor, 14, 25)
-          );
-        }
+        // True 3/4 architectural hero perspective:
+        // Position camera back on boulevard curb (44 units out) and upstream along road (26 units)
+        // with elevated cinematic vantage (15 units) to reveal building facade, illuminated canopy, and entrance steps
+        const camOutDist = 44.0;
+        const camZOffset = 26.0;
+        const camElevation = 15.0;
+        this.focusTargetPosition.copy(landmarkWorldPos)
+          .addScaledVector(frontDir, camOutDist)
+          .add(new THREE.Vector3(0, 0, camZOffset))
+          .setY(camElevation);
 
-        // Advance focus progress smoothly
-        this.focusProgress = Math.min(1.0, this.focusProgress + delta * 1.2);
-        const easeT = THREE.MathUtils.smoothstep(this.focusProgress, 0, 1);
+        // Look at center of entrance lobby & glowing neon portal
+        // Offset slightly toward camera right so the building is framed elegantly in the left-center, clear of right HUD panel
+        const camRight = new THREE.Vector3(frontDir.z, 0, -frontDir.x);
+        this.focusTargetLookAt.copy(landmarkWorldPos)
+          .add(new THREE.Vector3(0, 12.0, 0))
+          .addScaledVector(camRight, 5.0);
 
-        this.currentPosition.lerpVectors(this.focusStartPosition, this.focusTargetPosition, easeT);
-        this.currentTarget.lerpVectors(this.focusStartTarget, this.focusTargetLookAt, easeT);
+        // Continuous smooth zoom-in glide (matching the silky feel of zoom-out)
+        const zoomLerp = delta * 3.5;
+        this.currentPosition.lerp(this.focusTargetPosition, zoomLerp);
+        this.currentTarget.lerp(this.focusTargetLookAt, zoomLerp);
       }
     } else if (mode === 'RETURNING_TO_CITY') {
+      this.activeFocusDestId = null;
+      this.focusProgress = 0;
+
       // 3. Return to City: Interpolate smoothly back from building framing to saved road progress
       const targetRouteProgress = store.previousScrollProgress;
       this.routeEngine.getPosition(targetRouteProgress, this.targetPosition);
       this.routeEngine.getLookAt(targetRouteProgress, 0.05, this.targetLookAt);
 
-      const returnLerp = delta * 3.0;
+      const returnLerp = delta * 3.5;
       this.currentPosition.lerp(this.targetPosition, returnLerp);
       this.currentTarget.lerp(this.targetLookAt, returnLerp);
 
       // Check if camera has arrived back near the road
-      if (this.currentPosition.distanceTo(this.targetPosition) < 0.5) {
+      if (this.currentPosition.distanceTo(this.targetPosition) < 0.8) {
         store.setCityMode('EXPLORATION');
         store.setScrollProgress(targetRouteProgress);
       }

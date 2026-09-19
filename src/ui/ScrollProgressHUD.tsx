@@ -8,6 +8,7 @@ export const ScrollProgressHUD: React.FC = () => {
   const destinations = useCityStore((s) => s.destinations);
   const selectedDestination = useCityStore((s) => s.selectedDestination);
   const selectDestination = useCityStore((s) => s.selectDestination);
+  const enterDestination = useCityStore((s) => s.enterDestination);
 
   const percent = Math.round(dampedProgress * 100);
 
@@ -38,7 +39,7 @@ export const ScrollProgressHUD: React.FC = () => {
                   key={dest.id}
                   onClick={() => {
                     setScrollProgress(dest.routeProgress);
-                    selectDestination(dest);
+                    enterDestination(dest);
                   }}
                   className={`group absolute -left-2.5 -translate-y-1/2 w-6 h-6 rounded-full flex items-center justify-center transition-all ${
                     isSelected

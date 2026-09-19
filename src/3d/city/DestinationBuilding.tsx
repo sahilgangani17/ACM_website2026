@@ -19,6 +19,7 @@ export const DestinationBuilding: React.FC<DestinationBuildingProps> = ({
   
   const selectDestination = useCityStore((s) => s.selectDestination);
   const enterDestination = useCityStore((s) => s.enterDestination);
+  const setScrollProgress = useCityStore((s) => s.setScrollProgress);
   const selectedDestination = useCityStore((s) => s.selectedDestination);
   const setHoveredDestinationId = useCityStore((s) => s.setHoveredDestinationId);
 
@@ -87,7 +88,8 @@ export const DestinationBuilding: React.FC<DestinationBuildingProps> = ({
         }}
         onClick={(e) => {
           e.stopPropagation();
-          selectDestination(destination);
+          setScrollProgress(destination.routeProgress);
+          enterDestination(destination);
         }}
       >
         <boxGeometry args={[32, 36, 24]} />
@@ -156,7 +158,8 @@ export const DestinationBuilding: React.FC<DestinationBuildingProps> = ({
         <div
           onClick={(e) => {
             e.stopPropagation();
-            selectDestination(destination);
+            setScrollProgress(destination.routeProgress);
+            enterDestination(destination);
           }}
           className={`cursor-pointer transition-all duration-300 transform ${
             hovered || isSelected ? 'scale-110 -translate-y-2' : 'scale-100'

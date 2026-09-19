@@ -93,13 +93,20 @@ export const useWorldStore = create<WorldState>((set, get) => ({
     });
 
     const startTime = performance.now();
-    const duration = 1000; // Exact 1.0 second cinematic dive
+    const duration = 1250; // Fluid 1.25s cinematic dive into city boulevard
+    const startP = get().worldProgress;
 
     const animateWarp = (now: number) => {
       const elapsed = now - startTime;
       const progress = Math.min(1.0, elapsed / duration);
 
-      set({ warpProgress: progress });
+      // Smoothly advance worldProgress to 1.0 alongside the dive
+      const currentWorldProgress = Math.min(1.0, startP + progress * (1.0 - startP));
+
+      set({
+        warpProgress: progress,
+        worldProgress: currentWorldProgress,
+      });
 
       if (progress < 1.0) {
         activeWarpAnim = requestAnimationFrame(animateWarp);

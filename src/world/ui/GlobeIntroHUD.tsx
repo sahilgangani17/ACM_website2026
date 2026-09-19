@@ -26,6 +26,7 @@ export const GlobeIntroHUD: React.FC = () => {
 
   const setScrollProgress = useCityStore((s) => s.setScrollProgress);
   const selectDestination = useCityStore((s) => s.selectDestination);
+  const enterDestination = useCityStore((s) => s.enterDestination);
   const destinations = useCityStore((s) => s.destinations);
 
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
@@ -41,7 +42,7 @@ export const GlobeIntroHUD: React.FC = () => {
     const target = destinations.find((d) => d.id === destId);
     if (target) {
       setScrollProgress(target.routeProgress);
-      selectDestination(target);
+      enterDestination(target);
     }
     enterCityDirectly();
   };

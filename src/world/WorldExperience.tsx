@@ -80,13 +80,24 @@ const MasterCameraLoop: React.FC = () => {
       const endPos = new THREE.Vector3(0, 5.5, 60.0);
       const endTarget = new THREE.Vector3(0, 4.5, -20.0);
 
+      // If a destination was selected from globe navigation, dive directly to that destination
+      const activeDest = useCityStore.getState().activeDestination;
+      if (activeDest && warpDirection === 'TO_CITY') {
+        const routeEngine = cityControllerRef.current?.routeEngine || new CameraRouteEngine();
+        routeEngine.getPosition(activeDest.routeProgress, endPos);
+        routeEngine.getLookAt(activeDest.routeProgress, 0.05, endTarget);
+      }
+
       // Top Overview Framing (worldProgress = 0.0)
       const topPos = new THREE.Vector3(0, 8.0, 48.0);
       const topTarget = new THREE.Vector3(0, 0, 0);
 
       if (warpDirection === 'TO_CITY') {
-        worldPos.current.lerpVectors(startPos, endPos, easeCubic);
-        worldTarget.current.lerpVectors(startTarget, endTarget, easeCubic);
+        // Smoothly dive from current camera location down to the boulevard
+        const fromPos = warpOriginPos.current.lengthSq() > 0 ? warpOriginPos.current : startPos;
+        const fromTarget = warpOriginTarget.current.lengthSq() > 0 ? warpOriginTarget.current : startTarget;
+        worldPos.current.lerpVectors(fromPos, endPos, easeCubic);
+        worldTarget.current.lerpVectors(fromTarget, endTarget, easeCubic);
       } else {
         // Reverse ascent: smoothly elevate from current camera pose all the way to Top Overview
         const fromPos = warpOriginPos.current.lengthSq() > 0 ? warpOriginPos.current : endPos;
@@ -171,17 +182,16 @@ export const WorldExperience: React.FC = () => {
   const globeOpacity = useMemo(() => {
     if (!isWarping) return isSpaceActive ? 1.0 : 0.0;
     if (warpDirection === 'TO_CITY') {
-      return Math.max(0, 1.0 - warpProgress * 2.2); // Fades out cleanly in first 0.45s
+      // Fades out smoothly as camera penetrates atmosphere
+      return Math.max(0, 1.0 - warpProgress * 1.7);
     } else {
       // Ascending back to globe: fades in smoothly as camera pulls away
       return Math.min(1.0, Math.max(0, (warpProgress - 0.15) / 0.55));
     }
   }, [isWarping, warpProgress, warpDirection, isSpaceActive]);
 
-  // City stays active smoothly during ascent until globe fully obscures it
-  const showCity =
-    worldMode === 'CITY_EXPLORATION' ||
-    (isWarping && (warpDirection === 'TO_CITY' ? warpProgress > 0.35 : warpProgress < 0.75));
+  // City stays active smoothly during warp descent & ascent (pre-warmed in WebGL, zero stutter)
+  const showCity = worldMode === 'CITY_EXPLORATION' || isWarping;
 
   return (
     <div className="w-full h-screen fixed inset-0 bg-[#02040a] overflow-hidden select-none">

@@ -60,7 +60,7 @@ export const useCityStore = create<CityState>((set, get) => ({
   setScrollProgress: (progress) => {
     const currentMode = get().cityMode;
     // Only update scroll target if we are in exploration mode or returning
-    if (currentMode === 'EXPLORATION' || currentMode === 'DESTINATION_SELECTED') {
+    if (currentMode === 'EXPLORATION' || currentMode === 'DESTINATION_SELECTED' || currentMode === 'RETURNING_TO_CITY') {
       const clamped = Math.max(0, Math.min(1, progress));
       set({ scrollProgress: clamped });
     }
@@ -93,11 +93,13 @@ export const useCityStore = create<CityState>((set, get) => ({
 
   // Step 2: User clicks [ ENTER ] on overlay -> Transition to Focus Camera Mode
   enterDestination: (destination) => {
-    const currentProgress = get().dampedProgress;
+    const anchorProgress = destination.routeProgress;
     set({
       selectedDestination: destination,
       activeDestination: destination,
-      previousScrollProgress: currentProgress,
+      previousScrollProgress: anchorProgress,
+      scrollProgress: anchorProgress,
+      dampedProgress: anchorProgress,
       cityMode: 'DESTINATION_FOCUS'
     });
     get().onDestinationEnterCallback?.(destination);

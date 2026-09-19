@@ -70,14 +70,23 @@ export const App: React.FC = () => {
         }
       } else {
         // City Phase
-        if (e.deltaY < -15 && currentCityProgress <= 0.002) {
-          // Scrolling UP at beginning of boulevard triggers cinematic warp ascent back to top overview!
-          triggerWarpToGlobe();
-        } else {
-          const sensitivity = 0.0007;
-          const delta = e.deltaY * sensitivity;
-          setCityScrollProgress(currentCityProgress + delta);
+        const cityMode = useCityStore.getState().cityMode;
+        if (cityMode === 'DESTINATION_FOCUS') {
+          // Scrolling while in destination focus returns smoothly to boulevard traversal
+          if (Math.abs(e.deltaY) > 20) {
+            useCityStore.getState().returnToCity();
+          }
+          return;
         }
+
+        if (cityMode === 'RETURNING_TO_CITY') {
+          return; // Let camera complete return glide to boulevard road
+        }
+
+        // Smooth boulevard traversal: scroll down advances forward, scroll up reverses backward
+        const sensitivity = 0.00065;
+        const delta = e.deltaY * sensitivity;
+        setCityScrollProgress(Math.max(0, Math.min(1.0, currentCityProgress + delta)));
       }
     };
 
@@ -86,7 +95,7 @@ export const App: React.FC = () => {
       if (idleSnapTimer) clearTimeout(idleSnapTimer);
       window.removeEventListener('wheel', handleWheel);
     };
-  }, [setWorldProgress, setCityScrollProgress, triggerWarpToGlobe]);
+  }, [setWorldProgress, setCityScrollProgress]);
 
   // 2. Two-Way Unified Touch Drag Listener (Mobile Traversal)
   useEffect(() => {
@@ -120,12 +129,8 @@ export const App: React.FC = () => {
             setWorldProgress(currentWorldProgress + deltaY * 0.0016);
           }
         } else {
-          if (deltaY < -25 && currentCityProgress <= 0.002) {
-            triggerWarpToGlobe();
-          } else {
-            const sensitivity = 0.0018;
-            setCityScrollProgress(currentCityProgress + deltaY * sensitivity);
-          }
+          const sensitivity = 0.0016;
+          setCityScrollProgress(Math.max(0, Math.min(1.0, currentCityProgress + deltaY * sensitivity)));
         }
       }
     };
@@ -137,7 +142,7 @@ export const App: React.FC = () => {
       window.removeEventListener('touchstart', handleTouchStart);
       window.removeEventListener('touchmove', handleTouchMove);
     };
-  }, [setWorldProgress, setCityScrollProgress, triggerWarpToGlobe]);
+  }, [setWorldProgress, setCityScrollProgress]);
 
   // 3. Two-Way Unified Keyboard Arrow Navigation
   useEffect(() => {
@@ -163,18 +168,14 @@ export const App: React.FC = () => {
           setWorldProgress(currentWorldProgress + 0.06);
         }
       } else {
-        if (isUp && currentCityProgress <= 0.002) {
-          triggerWarpToGlobe();
-        } else {
-          const step = 0.04;
-          setCityScrollProgress(currentCityProgress + (isDown ? step : -step));
-        }
+        const step = 0.04;
+        setCityScrollProgress(Math.max(0, Math.min(1.0, currentCityProgress + (isDown ? step : -step))));
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setWorldProgress, setCityScrollProgress, triggerWarpToGlobe]);
+  }, [setWorldProgress, setCityScrollProgress]);
 
   return (
     <div className="relative w-full h-screen bg-[#02040a] text-slate-100 overflow-hidden font-sans select-none">
