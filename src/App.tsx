@@ -32,6 +32,8 @@ export const App: React.FC = () => {
 
   // 1. Two-Way Unified Wheel Scroll Listener
   useEffect(() => {
+    let idleSnapTimer: any = null;
+
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       const currentWorldMode = useWorldStore.getState().worldMode;
@@ -39,17 +41,37 @@ export const App: React.FC = () => {
       const currentCityProgress = useCityStore.getState().scrollProgress;
       const isWarping = useWorldStore.getState().isWarping;
 
-      if (isWarping) return; // Prevent input interruption during active 1s warp
+      if (isWarping) return; // Prevent input interruption during active warp
 
       if (currentWorldMode !== 'CITY_EXPLORATION') {
-        // Globe Phase (0.0 to 0.65 -> triggers 1s warp)
-        const sensitivity = 0.00055;
-        const delta = e.deltaY * sensitivity;
-        setWorldProgress(currentWorldProgress + delta);
+        if (idleSnapTimer) clearTimeout(idleSnapTimer);
+
+        if (e.deltaY < 0) {
+          // Scrolling UP: bring smoothly and decisively back to top overview
+          const sensitivity = 0.00085;
+          const nextProgress = Math.max(0, currentWorldProgress + e.deltaY * sensitivity);
+          if (nextProgress < 0.06) {
+            setWorldProgress(0);
+          } else {
+            setWorldProgress(nextProgress);
+            // Magnetic snap to top if user stops scrolling near top
+            idleSnapTimer = setTimeout(() => {
+              const wp = useWorldStore.getState().worldProgress;
+              if (wp > 0 && wp < 0.22) {
+                useWorldStore.getState().glideToTop();
+              }
+            }, 180);
+          }
+        } else {
+          // Scrolling DOWN towards Mumbai focus & city
+          const sensitivity = 0.00055;
+          const delta = e.deltaY * sensitivity;
+          setWorldProgress(currentWorldProgress + delta);
+        }
       } else {
         // City Phase
         if (e.deltaY < -15 && currentCityProgress <= 0.002) {
-          // Scrolling UP at beginning of boulevard triggers 1s warp ascent back to globe!
+          // Scrolling UP at beginning of boulevard triggers cinematic warp ascent back to top overview!
           triggerWarpToGlobe();
         } else {
           const sensitivity = 0.0007;
@@ -60,7 +82,10 @@ export const App: React.FC = () => {
     };
 
     window.addEventListener('wheel', handleWheel, { passive: false });
-    return () => window.removeEventListener('wheel', handleWheel);
+    return () => {
+      if (idleSnapTimer) clearTimeout(idleSnapTimer);
+      window.removeEventListener('wheel', handleWheel);
+    };
   }, [setWorldProgress, setCityScrollProgress, triggerWarpToGlobe]);
 
   // 2. Two-Way Unified Touch Drag Listener (Mobile Traversal)
@@ -87,8 +112,13 @@ export const App: React.FC = () => {
         const currentCityProgress = useCityStore.getState().scrollProgress;
 
         if (currentWorldMode !== 'CITY_EXPLORATION') {
-          const sensitivity = 0.0016;
-          setWorldProgress(currentWorldProgress + deltaY * sensitivity);
+          if (deltaY < 0) {
+            const next = Math.max(0, currentWorldProgress + deltaY * 0.0022);
+            if (next < 0.06) setWorldProgress(0);
+            else setWorldProgress(next);
+          } else {
+            setWorldProgress(currentWorldProgress + deltaY * 0.0016);
+          }
         } else {
           if (deltaY < -25 && currentCityProgress <= 0.002) {
             triggerWarpToGlobe();
@@ -125,8 +155,13 @@ export const App: React.FC = () => {
       if (!isDown && !isUp) return;
 
       if (currentWorldMode !== 'CITY_EXPLORATION') {
-        const step = 0.06;
-        setWorldProgress(currentWorldProgress + (isDown ? step : -step));
+        if (isUp) {
+          const next = Math.max(0, currentWorldProgress - 0.08);
+          if (next < 0.06) setWorldProgress(0);
+          else setWorldProgress(next);
+        } else {
+          setWorldProgress(currentWorldProgress + 0.06);
+        }
       } else {
         if (isUp && currentCityProgress <= 0.002) {
           triggerWarpToGlobe();

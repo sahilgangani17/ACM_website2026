@@ -25,12 +25,102 @@ const GLOBAL_HUBS: Array<{ name: string; coords: [number, number] }> = [
 
 const MUMBAI_COORDS: [number, number] = [72.8777, 19.0760]; // [lng, lat]
 
+// Point-in-polygon helper
+function isPointInPolygon(point: [number, number], polygon: number[][]): boolean {
+  const [x, y] = point;
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [xi, yi] = polygon[i];
+    const [xj, yj] = polygon[j];
+
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function isPointInFeature(point: [number, number], feature: any): boolean {
+  const geometry = feature.geometry;
+  if (!geometry) return false;
+
+  if (geometry.type === 'Polygon') {
+    const coordinates = geometry.coordinates;
+    if (!isPointInPolygon(point, coordinates[0])) return false;
+    for (let i = 1; i < coordinates.length; i++) {
+      if (isPointInPolygon(point, coordinates[i])) return false;
+    }
+    return true;
+  } else if (geometry.type === 'MultiPolygon') {
+    for (const polygon of geometry.coordinates) {
+      if (isPointInPolygon(point, polygon[0])) {
+        let inHole = false;
+        for (let i = 1; i < polygon.length; i++) {
+          if (isPointInPolygon(point, polygon[i])) {
+            inHole = true;
+            break;
+          }
+        }
+        if (!inHole) return true;
+      }
+    }
+    return false;
+  }
+  return false;
+}
+
+// Pre-computed globally once on bundle evaluation (ZERO runtime mount freeze)
+const ALL_DOTS: DotData[] = (() => {
+  const dots: DotData[] = [];
+  const dotSpacing = 16;
+  const stepSize = dotSpacing * 0.11;
+
+  (landGeoJson as any).features.forEach((feature: any) => {
+    const bounds = d3.geoBounds(feature);
+    const [[minLng, minLat], [maxLng, maxLat]] = bounds;
+
+    for (let lng = minLng; lng <= maxLng; lng += stepSize) {
+      for (let lat = minLat; lat <= maxLat; lat += stepSize) {
+        const pt: [number, number] = [lng, lat];
+        if (isPointInFeature(pt, feature)) {
+          dots.push({ lng, lat });
+        }
+      }
+    }
+  });
+
+  return dots;
+})();
+
+// Pre-computed connection arcs
+const CONNECTION_ARCS = GLOBAL_HUBS.map((hub) => {
+  const interpolator = d3.geoInterpolate(hub.coords, MUMBAI_COORDS);
+  const points: [number, number][] = [];
+  const steps = 40;
+  for (let i = 0; i <= steps; i++) {
+    points.push(interpolator(i / steps));
+  }
+  return {
+    name: hub.name,
+    feature: {
+      type: 'Feature',
+      geometry: {
+        type: 'LineString',
+        coordinates: points,
+      },
+    },
+  };
+});
+
 export const RotatingEarth: React.FC<RotatingEarthProps> = ({
   opacity = 1.0,
   className = '',
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const opacityRef = useRef(opacity);
+  opacityRef.current = opacity;
 
   const worldMode = useWorldStore((s) => s.worldMode);
   const worldProgress = useWorldStore((s) => s.worldProgress);
@@ -38,96 +128,6 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
 
   // Mumbai badge 2D screen coordinates
   const [mumbaiScreenPos, setMumbaiScreenPos] = useState<{ x: number; y: number; visible: boolean } | null>(null);
-
-  // Point-in-polygon helper
-  const pointInPolygon = useCallback((point: [number, number], polygon: number[][]): boolean => {
-    const [x, y] = point;
-    let inside = false;
-
-    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-      const [xi, yi] = polygon[i];
-      const [xj, yj] = polygon[j];
-
-      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) {
-        inside = !inside;
-      }
-    }
-    return inside;
-  }, []);
-
-  const pointInFeature = useCallback((point: [number, number], feature: any): boolean => {
-    const geometry = feature.geometry;
-    if (!geometry) return false;
-
-    if (geometry.type === 'Polygon') {
-      const coordinates = geometry.coordinates;
-      if (!pointInPolygon(point, coordinates[0])) return false;
-      for (let i = 1; i < coordinates.length; i++) {
-        if (pointInPolygon(point, coordinates[i])) return false;
-      }
-      return true;
-    } else if (geometry.type === 'MultiPolygon') {
-      for (const polygon of geometry.coordinates) {
-        if (pointInPolygon(point, polygon[0])) {
-          let inHole = false;
-          for (let i = 1; i < polygon.length; i++) {
-            if (pointInPolygon(point, polygon[i])) {
-              inHole = true;
-              break;
-            }
-          }
-          if (!inHole) return true;
-        }
-      }
-      return false;
-    }
-    return false;
-  }, [pointInPolygon]);
-
-  // Pre-generate halftone dots from local land GeoJSON
-  const allDots = useMemo<DotData[]>(() => {
-    const dots: DotData[] = [];
-    const dotSpacing = 16;
-    const stepSize = dotSpacing * 0.11; // Good balance of density & 60fps performance
-
-    (landGeoJson as any).features.forEach((feature: any) => {
-      const bounds = d3.geoBounds(feature);
-      const [[minLng, minLat], [maxLng, maxLat]] = bounds;
-
-      for (let lng = minLng; lng <= maxLng; lng += stepSize) {
-        for (let lat = minLat; lat <= maxLat; lat += stepSize) {
-          const pt: [number, number] = [lng, lat];
-          if (pointInFeature(pt, feature)) {
-            dots.push({ lng, lat });
-          }
-        }
-      }
-    });
-
-    return dots;
-  }, [pointInFeature]);
-
-  // Great-circle connection arc geometries
-  const connectionArcs = useMemo(() => {
-    return GLOBAL_HUBS.map((hub) => {
-      const interpolator = d3.geoInterpolate(hub.coords, MUMBAI_COORDS);
-      const points: [number, number][] = [];
-      const steps = 40;
-      for (let i = 0; i <= steps; i++) {
-        points.push(interpolator(i / steps));
-      }
-      return {
-        name: hub.name,
-        feature: {
-          type: 'Feature',
-          geometry: {
-            type: 'LineString',
-            coordinates: points,
-          },
-        },
-      };
-    });
-  }, []);
 
   // Active state refs for animation loop
   const baseYawRef = useRef<number>(-35);
@@ -170,6 +170,16 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
     let lastTime = performance.now();
 
     const render = (time: number) => {
+      // If completely invisible in city exploration and not warping, skip render to save 100% CPU/GPU
+      if (
+        opacityRef.current <= 0.001 &&
+        useWorldStore.getState().worldMode === 'CITY_EXPLORATION' &&
+        !useWorldStore.getState().isWarping
+      ) {
+        animFrameId = requestAnimationFrame(render);
+        return;
+      }
+
       const dt = Math.min((time - lastTime) / 1000, 0.1);
       lastTime = time;
 
@@ -290,7 +300,7 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
       context.stroke();
 
       // 6. Draw Halftone Digital Land Matrix Dots
-      allDots.forEach((dot, idx) => {
+      ALL_DOTS.forEach((dot, idx) => {
         const projected = projection([dot.lng, dot.lat]);
         if (
           projected &&
@@ -316,7 +326,7 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
       });
 
       // 7. Draw Global Computing Network Arcs to Mumbai
-      connectionArcs.forEach((arc) => {
+      CONNECTION_ARCS.forEach((arc) => {
         context.beginPath();
         path(arc.feature as any);
         context.strokeStyle = 'rgba(0, 240, 255, 0.4)';
@@ -416,20 +426,20 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  }, [allDots, connectionArcs]);
-
-  // If in pure city mode, do not render canvas
-  if (worldMode === 'CITY_EXPLORATION' && !isWarping) {
-    return null;
-  }
+  }, []);
 
   const isFocal = worldProgress >= 0.25;
+  const isFullyHidden = opacity <= 0.001 && worldMode === 'CITY_EXPLORATION' && !isWarping;
 
   return (
     <div
       ref={containerRef}
-      className={`fixed inset-0 pointer-events-auto transition-opacity duration-700 select-none ${className}`}
-      style={{ opacity }}
+      className={`fixed inset-0 select-none ${className}`}
+      style={{
+        opacity,
+        pointerEvents: opacity > 0.05 ? 'auto' : 'none',
+        display: isFullyHidden ? 'none' : 'block',
+      }}
     >
       {/* 1. High Performance 2D Orthographic D3 Earth Canvas */}
       <canvas
@@ -474,12 +484,6 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
           </div>
         </div>
       )}
-
-      {/* 3. Subtle Bottom Hint */}
-      <div className="absolute bottom-6 left-6 pointer-events-none hidden sm:flex items-center gap-2 text-[11px] font-mono text-slate-400 bg-slate-950/70 border border-slate-800/80 px-3 py-1.5 rounded-lg backdrop-blur-md">
-        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-        <span>Drag to rotate • Scroll to zoom Mumbai & enter ACM City</span>
-      </div>
     </div>
   );
 };

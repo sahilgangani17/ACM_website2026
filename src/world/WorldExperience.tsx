@@ -26,6 +26,11 @@ const MasterCameraLoop: React.FC = () => {
   const worldPos = useRef(new THREE.Vector3(0, 8, 48));
   const worldTarget = useRef(new THREE.Vector3(0, 0, 0));
 
+  // Seamless warp origin cache to prevent positional jumps
+  const warpOriginPos = useRef(new THREE.Vector3());
+  const warpOriginTarget = useRef(new THREE.Vector3());
+  const wasWarpingRef = useRef(false);
+
   useEffect(() => {
     cityControllerRef.current = new CityCameraController();
     return () => {
@@ -43,20 +48,28 @@ const MasterCameraLoop: React.FC = () => {
     const warpDirection = worldStore.warpDirection;
     const worldProgress = worldStore.worldProgress;
 
+    // Cache origin camera position the exact frame a warp initiates
+    if (!wasWarpingRef.current && isWarping) {
+      warpOriginPos.current.copy(camera.position);
+      const forward = new THREE.Vector3();
+      camera.getWorldDirection(forward);
+      warpOriginTarget.current.copy(camera.position).addScaledVector(forward, 40);
+    }
+    wasWarpingRef.current = isWarping;
+
     if (worldMode === 'CITY_EXPLORATION' && !isWarping) {
       // 1. Handover: Existing City Engine owns the camera completely!
       camera.fov = 55;
       camera.updateProjectionMatrix();
       cityControllerRef.current?.update(camera, delta);
     } else if (isWarping) {
-      // 2. Dedicated 1-Second Cinematic Warp Descent / Ascent
-      const easeT = THREE.MathUtils.smoothstep(warpProgress, 0, 1);
+      // 2. Dedicated Cinematic Warp Descent / Ascent
       const easeCubic = warpProgress < 0.5
         ? 4 * warpProgress * warpProgress * warpProgress
         : 1 - Math.pow(-2 * warpProgress + 2, 3) / 2;
 
       // Dynamic FOV pulse for hyper-speed sensation (peaks at 70 deg)
-      const fovPulse = Math.sin(warpProgress * Math.PI) * 16;
+      const fovPulse = Math.sin(warpProgress * Math.PI) * 15;
       camera.fov = 55 + fovPulse;
       camera.updateProjectionMatrix();
 
@@ -67,12 +80,19 @@ const MasterCameraLoop: React.FC = () => {
       const endPos = new THREE.Vector3(0, 5.5, 60.0);
       const endTarget = new THREE.Vector3(0, 4.5, -20.0);
 
+      // Top Overview Framing (worldProgress = 0.0)
+      const topPos = new THREE.Vector3(0, 8.0, 48.0);
+      const topTarget = new THREE.Vector3(0, 0, 0);
+
       if (warpDirection === 'TO_CITY') {
         worldPos.current.lerpVectors(startPos, endPos, easeCubic);
         worldTarget.current.lerpVectors(startTarget, endTarget, easeCubic);
       } else {
-        worldPos.current.lerpVectors(endPos, startPos, easeCubic);
-        worldTarget.current.lerpVectors(endTarget, startTarget, easeCubic);
+        // Reverse ascent: smoothly elevate from current camera pose all the way to Top Overview
+        const fromPos = warpOriginPos.current.lengthSq() > 0 ? warpOriginPos.current : endPos;
+        const fromTarget = warpOriginTarget.current.lengthSq() > 0 ? warpOriginTarget.current : endTarget;
+        worldPos.current.lerpVectors(fromPos, topPos, easeCubic);
+        worldTarget.current.lerpVectors(fromTarget, topTarget, easeCubic);
       }
 
       camera.position.copy(worldPos.current);
@@ -147,24 +167,26 @@ export const WorldExperience: React.FC = () => {
     });
   }, [destinations, routeEngine]);
 
-  // Compute clean globe opacity during 1s warp
+  // Compute clean globe opacity during warp
   const globeOpacity = useMemo(() => {
     if (!isWarping) return isSpaceActive ? 1.0 : 0.0;
     if (warpDirection === 'TO_CITY') {
       return Math.max(0, 1.0 - warpProgress * 2.2); // Fades out cleanly in first 0.45s
     } else {
-      return Math.min(1.0, warpProgress * 2.0);
+      // Ascending back to globe: fades in smoothly as camera pulls away
+      return Math.min(1.0, Math.max(0, (warpProgress - 0.15) / 0.55));
     }
   }, [isWarping, warpProgress, warpDirection, isSpaceActive]);
 
-  const showCity = worldMode === 'CITY_EXPLORATION' || (isWarping && warpProgress > 0.35);
+  // City stays active smoothly during ascent until globe fully obscures it
+  const showCity =
+    worldMode === 'CITY_EXPLORATION' ||
+    (isWarping && (warpDirection === 'TO_CITY' ? warpProgress > 0.35 : warpProgress < 0.75));
 
   return (
     <div className="w-full h-screen fixed inset-0 bg-[#02040a] overflow-hidden select-none">
-      {/* 1. SCENE A: D3 Halftone Dot Earth with Mumbai Zoom */}
-      {isSpaceActive && (
-        <RotatingEarth opacity={globeOpacity} />
-      )}
+      {/* 1. SCENE A: D3 Halftone Dot Earth (always mounted, zero restart lag) */}
+      <RotatingEarth opacity={globeOpacity} />
 
       {/* 2. 3D WebGL Canvas: Warp streaks & City Boulevard */}
       <Canvas
