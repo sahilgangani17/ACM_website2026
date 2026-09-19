@@ -130,7 +130,9 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
   }, []);
 
   // Active state refs for animation loop
-  const rotationRef = useRef<[number, number]>([-40, -10]);
+  const baseYawRef = useRef<number>(-35);
+  const basePitchRef = useRef<number>(-12);
+  const smoothProgressRef = useRef<number>(0);
   const autoRotateRef = useRef<boolean>(true);
   const isDraggingRef = useRef<boolean>(false);
   const pulseAnimRef = useRef<number>(0);
@@ -181,50 +183,52 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
       const defaultCenterY = height * 0.52;
       const baseRadius = Math.min(width * 0.40, height * 0.47);
 
-      // 1. Calculate zoom & center from worldProgress
-      const progress = useWorldStore.getState().worldProgress;
-      const targetMumbaiRot: [number, number] = [-MUMBAI_COORDS[0], -MUMBAI_COORDS[1]]; // [-72.8777, -19.0760]
+      // 1. Smooth bidirectional progress damping (silky cinematic glide)
+      const rawProgress = useWorldStore.getState().worldProgress;
+      smoothProgressRef.current = d3.interpolateNumber(
+        smoothProgressRef.current,
+        rawProgress
+      )(Math.min(1.0, dt * 3.2));
+      const p = smoothProgressRef.current;
 
-      // Zoom curve: normal (1.0) -> zoomed (2.5) as progress goes 0.0 -> 0.60
-      const zoomFactor = 1.0 + Math.pow(Math.min(1.0, progress / 0.60), 1.6) * 1.6;
-      const currentRadius = baseRadius * zoomFactor;
+      // 2. Fully reversible rotation interpolation
+      const targetMumbaiYaw = -MUMBAI_COORDS[0]; // -72.8777
+      const targetMumbaiPitch = -MUMBAI_COORDS[1]; // -19.0760
 
-      // When zooming into Mumbai, gently frame closer
-      const targetX = width >= 768 ? width * 0.66 : width / 2;
-      const centerX = d3.interpolateNumber(defaultCenterX, targetX)(Math.min(1.0, progress / 0.45));
-      const centerY = defaultCenterY;
+      // Only auto-rotate base orientation when near top and not dragging
+      if (!isDraggingRef.current && p < 0.06 && autoRotateRef.current) {
+        baseYawRef.current = (baseYawRef.current + dt * 6.0) % 360;
+      }
+
+      // Smooth focus factor from 0.0 (full globe view) to 1.0 (Mumbai focus)
+      const focusT = Math.min(1.0, Math.max(0, p / 0.55));
+      const easeFocus = d3.easeCubicInOut(focusT);
+
+      // Shortest angular path from current baseYaw to targetMumbaiYaw
+      let diffYaw = (targetMumbaiYaw - baseYawRef.current) % 360;
+      if (diffYaw > 180) diffYaw -= 360;
+      if (diffYaw < -180) diffYaw += 360;
+
+      // Active yaw and pitch: 100% reversible when scrolling up or down
+      const currentYaw = baseYawRef.current + diffYaw * easeFocus;
+      const currentPitch = d3.interpolateNumber(basePitchRef.current, targetMumbaiPitch)(easeFocus);
+
+      // 3. Smooth reversible zoom (1.0 at p=0 -> 2.3 at Mumbai focus)
+      const currentRadius = baseRadius * (1.0 + easeFocus * 1.35);
+
+      // 4. Smooth reversible center translation
+      const targetX = isDesktop ? width * 0.72 : (isTablet ? width * 0.66 : width / 2);
+      const currentCenterX = d3.interpolateNumber(defaultCenterX, targetX)(easeFocus);
+      const currentCenterY = defaultCenterY;
 
       const projection = d3
         .geoOrthographic()
         .scale(currentRadius)
-        .translate([centerX, centerY])
-        .clipAngle(90);
+        .translate([currentCenterX, currentCenterY])
+        .clipAngle(90)
+        .rotate([currentYaw, currentPitch]);
 
       const path = d3.geoPath().projection(projection).context(context);
-
-      // Handle rotation interpolation towards Mumbai
-      if (!isDraggingRef.current) {
-        if (progress < 0.08) {
-          // Free auto-rotation in initial intro
-          if (autoRotateRef.current) {
-            rotationRef.current[0] += dt * 8; // Gentle spin
-          }
-        } else {
-          // Progressively pull rotation to center on Mumbai
-          const pullWeight = Math.min(1.0, (progress - 0.05) / 0.45);
-          const easePull = d3.easeCubicOut(pullWeight);
-
-          // Shortest angular distance interpolation for longitude
-          let diffLng = (targetMumbaiRot[0] - rotationRef.current[0]) % 360;
-          if (diffLng > 180) diffLng -= 360;
-          if (diffLng < -180) diffLng += 360;
-
-          rotationRef.current[0] += diffLng * easePull * (dt * 5.0);
-          rotationRef.current[1] = d3.interpolateNumber(rotationRef.current[1], targetMumbaiRot[1])(easePull * dt * 4.5);
-        }
-      }
-
-      projection.rotate([rotationRef.current[0], rotationRef.current[1]]);
 
       // Clear frame
       context.clearRect(0, 0, width, height);
@@ -233,11 +237,11 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
 
       // 2. Draw Outer Atmospheric Corona Rim Glow (Reference Match)
       const glowGradient = context.createRadialGradient(
-        centerX,
-        centerY,
+        currentCenterX,
+        currentCenterY,
         currentRadius * 0.94,
-        centerX,
-        centerY,
+        currentCenterX,
+        currentCenterY,
         currentRadius * 1.18
       );
       glowGradient.addColorStop(0, 'rgba(0, 240, 255, 0.45)');
@@ -246,13 +250,13 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
       glowGradient.addColorStop(1, 'rgba(2, 6, 18, 0)');
 
       context.beginPath();
-      context.arc(centerX, centerY, currentRadius * 1.18, 0, 2 * Math.PI);
+      context.arc(currentCenterX, currentCenterY, currentRadius * 1.18, 0, 2 * Math.PI);
       context.fillStyle = glowGradient;
       context.fill();
 
       // Sharp outer neon atmosphere boundary ring
       context.beginPath();
-      context.arc(centerX, centerY, currentRadius * 1.008, 0, 2 * Math.PI);
+      context.arc(currentCenterX, currentCenterY, currentRadius * 1.008, 0, 2 * Math.PI);
       context.strokeStyle = 'rgba(0, 240, 255, 0.75)';
       context.lineWidth = 2.5 * scaleFactor;
       context.shadowColor = '#00f0ff';
@@ -262,7 +266,7 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
 
       // 3. Draw Dark Obsidian Ocean Body
       context.beginPath();
-      context.arc(centerX, centerY, currentRadius, 0, 2 * Math.PI);
+      context.arc(currentCenterX, currentCenterY, currentRadius, 0, 2 * Math.PI);
       context.fillStyle = '#020612';
       context.fill();
       context.strokeStyle = 'rgba(0, 240, 255, 0.45)';
@@ -324,8 +328,7 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
 
       // 8. Draw Mumbai Beacon & Pulse Animation
       const mumbaiProj = projection(MUMBAI_COORDS);
-      // Check if Mumbai is facing camera
-      const centerCoords: [number, number] = [-rotationRef.current[0], -rotationRef.current[1]];
+      const centerCoords: [number, number] = [-currentYaw, -currentPitch];
       const isMumbaiFacing = d3.geoDistance(MUMBAI_COORDS, centerCoords) < Math.PI / 2;
 
       pulseAnimRef.current = (pulseAnimRef.current + dt * 1.6) % 1;
@@ -380,7 +383,7 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
       autoRotateRef.current = false;
       startX = e.clientX;
       startY = e.clientY;
-      startRot = [...rotationRef.current];
+      startRot = [baseYawRef.current, basePitchRef.current];
     };
 
     const onMouseMove = (e: MouseEvent) => {
@@ -389,8 +392,8 @@ export const RotatingEarth: React.FC<RotatingEarthProps> = ({
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
 
-      rotationRef.current[0] = startRot[0] + dx * sensitivity;
-      rotationRef.current[1] = Math.max(-80, Math.min(80, startRot[1] - dy * sensitivity));
+      baseYawRef.current = (startRot[0] + dx * sensitivity) % 360;
+      basePitchRef.current = Math.max(-50, Math.min(50, startRot[1] - dy * sensitivity));
     };
 
     const onMouseUp = () => {

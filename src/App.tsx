@@ -43,7 +43,7 @@ export const App: React.FC = () => {
 
       if (currentWorldMode !== 'CITY_EXPLORATION') {
         // Globe Phase (0.0 to 0.65 -> triggers 1s warp)
-        const sensitivity = 0.0009;
+        const sensitivity = 0.00055;
         const delta = e.deltaY * sensitivity;
         setWorldProgress(currentWorldProgress + delta);
       } else {
@@ -87,7 +87,7 @@ export const App: React.FC = () => {
         const currentCityProgress = useCityStore.getState().scrollProgress;
 
         if (currentWorldMode !== 'CITY_EXPLORATION') {
-          const sensitivity = 0.0025;
+          const sensitivity = 0.0016;
           setWorldProgress(currentWorldProgress + deltaY * sensitivity);
         } else {
           if (deltaY < -25 && currentCityProgress <= 0.002) {
@@ -125,7 +125,7 @@ export const App: React.FC = () => {
       if (!isDown && !isUp) return;
 
       if (currentWorldMode !== 'CITY_EXPLORATION') {
-        const step = 0.12;
+        const step = 0.06;
         setWorldProgress(currentWorldProgress + (isDown ? step : -step));
       } else {
         if (isUp && currentCityProgress <= 0.002) {
