@@ -2,6 +2,7 @@ import React from 'react';
 import { useCityStore, QualityTier } from '../state/useCityStore';
 import { useWorldStore } from '../world/state/useWorldStore';
 import { Compass, Monitor, Eye, Globe as GlobeIcon } from 'lucide-react';
+import acmLogo from '../assets/acm_logo.png';
 
 export const NavbarHeader: React.FC = () => {
   const cityMode = useCityStore((s) => s.cityMode);
@@ -15,9 +16,11 @@ export const NavbarHeader: React.FC = () => {
   return (
     <header className="fixed top-0 left-0 right-0 z-40 pointer-events-none p-4 md:p-6 flex items-center justify-between">
       {/* Brand Identity & Breadcrumb */}
-      <div className="pointer-events-auto flex items-center gap-3 glass-panel px-4 py-2 rounded-xl">
-        <div className="w-3 h-3 rounded-full bg-cyan-400 animate-pulse shadow-glow-cyan" />
-        <span className="font-heading font-black text-lg tracking-wider text-white">
+      <div className="pointer-events-auto flex items-center gap-3 glass-panel px-3.5 py-1.5 rounded-xl">
+        <div className="w-6 h-6 rounded-md overflow-hidden bg-white/95 p-0.5 flex items-center justify-center shrink-0 shadow-sm">
+          <img src={acmLogo} alt="ACM DJSCE" className="w-full h-full object-contain" />
+        </div>
+        <span className="font-heading font-black text-base tracking-wider text-white">
           ACM <span className="text-cyan-400 font-mono font-medium text-xs ml-1">BOULEVARD v1.0</span>
         </span>
         {/* Return to Globe Button */}

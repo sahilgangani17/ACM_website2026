@@ -1,7 +1,7 @@
 import React, { useRef, useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Globe } from './globe/Globe';
+import { RotatingEarth } from './globe/RotatingEarth';
 import { GlobeToCityTransition } from './transition/GlobeToCityTransition';
 import { CityEnvironment } from '../3d/city/CityEnvironment';
 import { Road } from '../3d/road/Road';
@@ -161,12 +161,18 @@ export const WorldExperience: React.FC = () => {
 
   return (
     <div className="w-full h-screen fixed inset-0 bg-[#02040a] overflow-hidden select-none">
+      {/* 1. SCENE A: D3 Halftone Dot Earth with Mumbai Zoom */}
+      {isSpaceActive && (
+        <RotatingEarth opacity={globeOpacity} />
+      )}
+
+      {/* 2. 3D WebGL Canvas: Warp streaks & City Boulevard */}
       <Canvas
         camera={{ position: [0, 8, 48], fov: 55, near: 0.1, far: 1200 }}
         dpr={preset.dpr}
         gl={{
           antialias: true,
-          alpha: false,
+          alpha: true,
           powerPreference: 'high-performance',
           stencil: false,
           depth: true,
@@ -174,12 +180,9 @@ export const WorldExperience: React.FC = () => {
       >
         <MasterCameraLoop />
 
-        {/* 1. SCENE A: Space & Globe (Strictly unmounted when in City) */}
-        {isSpaceActive && (
-          <group name="space-globe-scene">
-            <Globe radius={15} opacity={globeOpacity} />
-            <GlobeToCityTransition />
-          </group>
+        {/* 1-Second Cinematic Warp Streaks */}
+        {isSpaceActive && isWarping && (
+          <GlobeToCityTransition />
         )}
 
         {/* 2. SCENE B: Digital City Subsystem (Active in city mode & warp entry) */}
