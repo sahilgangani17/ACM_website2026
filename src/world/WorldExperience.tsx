@@ -8,6 +8,7 @@ import { Road } from '../3d/road/Road';
 import { WelcomeGate } from '../3d/road/WelcomeGate';
 import { CityBlock } from '../3d/city/CityBlock';
 import { DestinationBuilding } from '../3d/city/DestinationBuilding';
+import { HoloPlaza } from '../3d/city/HoloPlaza';
 import { TrafficSystem } from '../3d/vehicles/TrafficSystem';
 import { DroneSystem } from '../3d/vehicles/DroneSystem';
 import { CityParticles } from '../3d/atmosphere/CityParticles';
@@ -173,9 +174,9 @@ export const WorldExperience: React.FC = () => {
 
   const routeEngine = useMemo(() => new CameraRouteEngine(), []);
 
-  // Compute 3D world positions for landmark destination buildings
-  const destinationPositions = useMemo(() => {
-    return destinations.map((dest) => {
+  // Compute 3D world positions for landmark destination buildings and civic holographic plazas
+  const { destinationPositions, holoPlazaPositions } = useMemo(() => {
+    const destList = destinations.map((dest) => {
       const pos = routeEngine.getSidePosition(
         dest.routeProgress,
         dest.side,
@@ -191,6 +192,23 @@ export const WorldExperience: React.FC = () => {
         rotation: sideRotation,
       };
     });
+
+    const plazaList = destinations.map((dest) => {
+      const pos = routeEngine.getSidePosition(
+        dest.routeProgress,
+        dest.side,
+        22.5,
+        0,
+        new THREE.Vector3()
+      );
+      return {
+        id: `holo-plaza-${dest.id}`,
+        position: [pos.x, 0, pos.z] as [number, number, number],
+        color: dest.accentColor || dest.primaryColor,
+      };
+    });
+
+    return { destinationPositions: destList, holoPlazaPositions: plazaList };
   }, [destinations, routeEngine]);
 
   // Clean CSS-faded globe opacity during warp
@@ -243,6 +261,16 @@ export const WorldExperience: React.FC = () => {
               destination={dest}
               position={position}
               rotation={rotation}
+            />
+          ))}
+
+          {/* Landmark Civic Plaza Holographic Monuments */}
+          {holoPlazaPositions.map((plaza) => (
+            <HoloPlaza
+              key={plaza.id}
+              position={plaza.position}
+              themeColor={plaza.color}
+              scale={0.9}
             />
           ))}
 

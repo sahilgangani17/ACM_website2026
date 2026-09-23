@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { CameraRouteEngine } from '../../data/cityRoute';
 import { HighwayGantry } from './HighwayGantry';
@@ -273,9 +273,9 @@ export const Road: React.FC = () => {
     return {
       // Reflective Wet Asphalt Highway
       wetAsphalt: new THREE.MeshStandardMaterial({
-        color: '#040814',
-        roughness: 0.12, // High specular gloss for reflecting neon lights
-        metalness: 0.90,
+        color: '#020611',
+        roughness: 0.08, // Ultra-crisp specular mirror reflections for neon lights
+        metalness: 0.94,
         side: THREE.DoubleSide,
       }),
       // Solid Sidewalk Curb Stone
@@ -344,6 +344,135 @@ export const Road: React.FC = () => {
           districtName={inter.districtName}
         />
       ))}
+
+      {/* 9. Instanced Cyber Sidewalk Light Bollards */}
+      <SidewalkBollards routeEngine={routeEngine} />
     </group>
   );
 };
+
+// ---------------------------------------------------------------------------
+// High-Performance Instanced Sidewalk Light Bollards Component
+// ---------------------------------------------------------------------------
+const SidewalkBollards: React.FC<{ routeEngine: CameraRouteEngine }> = ({ routeEngine }) => {
+  const leftBollardMeshRef = useRef<THREE.InstancedMesh>(null!);
+  const leftCapsMeshRef = useRef<THREE.InstancedMesh>(null!);
+  const rightBollardMeshRef = useRef<THREE.InstancedMesh>(null!);
+  const rightCapsMeshRef = useRef<THREE.InstancedMesh>(null!);
+  const groundGlowRef = useRef<THREE.InstancedMesh>(null!);
+
+  const BOLLARD_COUNT = 32;
+
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+
+  // Shared geometry
+  const geometries = useMemo(() => {
+    const post = new THREE.CylinderGeometry(0.16, 0.22, 2.2, 10);
+    post.translate(0, 1.1, 0);
+
+    const cap = new THREE.CylinderGeometry(0.20, 0.20, 0.45, 10);
+    cap.translate(0, 2.25, 0);
+
+    const glowDisc = new THREE.PlaneGeometry(3.2, 3.2);
+    glowDisc.rotateX(-Math.PI / 2);
+    glowDisc.translate(0, 0.32, 0);
+
+    return { post, cap, glowDisc };
+  }, []);
+
+  const materials = useMemo(() => {
+    return {
+      post: new THREE.MeshStandardMaterial({
+        color: '#091322',
+        roughness: 0.3,
+        metalness: 0.85,
+      }),
+      leftCapCyan: new THREE.MeshBasicMaterial({
+        color: '#00f0ff',
+      }),
+      rightCapPurple: new THREE.MeshBasicMaterial({
+        color: '#c084fc',
+      }),
+      leftGlowCyan: new THREE.MeshBasicMaterial({
+        color: '#00f0ff',
+        transparent: true,
+        opacity: 0.18,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    };
+  }, []);
+
+  // Populate transforms once on mount
+  React.useEffect(() => {
+    if (!leftBollardMeshRef.current || !rightBollardMeshRef.current) return;
+
+    const vPos = new THREE.Vector3();
+    const vTangent = new THREE.Vector3();
+
+    for (let i = 0; i < BOLLARD_COUNT; i++) {
+      const t = 0.02 + (i / (BOLLARD_COUNT - 1)) * 0.94;
+      routeEngine.getTangent(t, vTangent);
+      const yaw = Math.atan2(vTangent.x, vTangent.z);
+
+      // Left sidewalk placement
+      routeEngine.getSidePosition(t, 'left', 15.2, 0.28, vPos);
+      dummy.position.copy(vPos);
+      dummy.rotation.set(0, yaw, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+
+      leftBollardMeshRef.current.setMatrixAt(i, dummy.matrix);
+      leftCapsMeshRef.current.setMatrixAt(i, dummy.matrix);
+      groundGlowRef.current.setMatrixAt(i, dummy.matrix);
+
+      // Right sidewalk placement
+      routeEngine.getSidePosition(t, 'right', 15.2, 0.28, vPos);
+      dummy.position.copy(vPos);
+      dummy.rotation.set(0, yaw, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+
+      rightBollardMeshRef.current.setMatrixAt(i, dummy.matrix);
+      rightCapsMeshRef.current.setMatrixAt(i, dummy.matrix);
+      groundGlowRef.current.setMatrixAt(i + BOLLARD_COUNT, dummy.matrix);
+    }
+
+    leftBollardMeshRef.current.instanceMatrix.needsUpdate = true;
+    leftCapsMeshRef.current.instanceMatrix.needsUpdate = true;
+    rightBollardMeshRef.current.instanceMatrix.needsUpdate = true;
+    rightCapsMeshRef.current.instanceMatrix.needsUpdate = true;
+    groundGlowRef.current.instanceMatrix.needsUpdate = true;
+  }, [routeEngine, dummy, BOLLARD_COUNT]);
+
+  return (
+    <group name="sidewalk-light-bollards">
+      {/* Left Sidewalk Posts & Cyan Luminaire Caps */}
+      <instancedMesh
+        ref={leftBollardMeshRef}
+        args={[geometries.post, materials.post, BOLLARD_COUNT]}
+      />
+      <instancedMesh
+        ref={leftCapsMeshRef}
+        args={[geometries.cap, materials.leftCapCyan, BOLLARD_COUNT]}
+      />
+
+      {/* Right Sidewalk Posts & Purple Luminaire Caps */}
+      <instancedMesh
+        ref={rightBollardMeshRef}
+        args={[geometries.post, materials.post, BOLLARD_COUNT]}
+      />
+      <instancedMesh
+        ref={rightCapsMeshRef}
+        args={[geometries.cap, materials.rightCapPurple, BOLLARD_COUNT]}
+      />
+
+      {/* Ground Lighting Pools */}
+      <instancedMesh
+        ref={groundGlowRef}
+        args={[geometries.glowDisc, materials.leftGlowCyan, BOLLARD_COUNT * 2]}
+      />
+    </group>
+  );
+};
+
