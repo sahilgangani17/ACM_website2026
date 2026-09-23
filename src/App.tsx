@@ -30,6 +30,29 @@ export const App: React.FC = () => {
     });
   }, []);
 
+  // Browser Back Button: City → Globe navigation
+  useEffect(() => {
+    // Push a history entry when entering city so back button warps to globe
+    if (worldMode === 'CITY_EXPLORATION') {
+      if (!window.history.state?.city) {
+        window.history.pushState({ city: true }, '');
+      }
+    }
+
+    const handlePopState = (e: PopStateEvent) => {
+      const currentMode = useWorldStore.getState().worldMode;
+      const isWarping = useWorldStore.getState().isWarping;
+      if (currentMode === 'CITY_EXPLORATION' && !isWarping) {
+        // Prevent default back navigation, warp to globe instead
+        e.preventDefault();
+        triggerWarpToGlobe();
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [worldMode, triggerWarpToGlobe]);
+
   // 1. Two-Way Unified Wheel Scroll Listener
   useEffect(() => {
     let idleSnapTimer: any = null;
@@ -84,7 +107,7 @@ export const App: React.FC = () => {
         }
 
         // Smooth boulevard traversal: scroll down advances forward, scroll up reverses backward
-        const sensitivity = 0.00065;
+        const sensitivity = 0.00025;
         const delta = e.deltaY * sensitivity;
         setCityScrollProgress(Math.max(0, Math.min(1.0, currentCityProgress + delta)));
       }
@@ -122,14 +145,14 @@ export const App: React.FC = () => {
 
         if (currentWorldMode !== 'CITY_EXPLORATION') {
           if (deltaY < 0) {
-            const next = Math.max(0, currentWorldProgress + deltaY * 0.0022);
+            const next = Math.max(0, currentWorldProgress + deltaY * 0.0012);
             if (next < 0.06) setWorldProgress(0);
             else setWorldProgress(next);
           } else {
-            setWorldProgress(currentWorldProgress + deltaY * 0.0016);
+            setWorldProgress(currentWorldProgress + deltaY * 0.0009);
           }
         } else {
-          const sensitivity = 0.0016;
+          const sensitivity = 0.0003;
           setCityScrollProgress(Math.max(0, Math.min(1.0, currentCityProgress + deltaY * sensitivity)));
         }
       }

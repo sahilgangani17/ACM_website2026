@@ -69,12 +69,12 @@ export const ScrollProgressHUD: React.FC = () => {
 
       {/* 2. Bottom Scroll Traversal Hint */}
       {dampedProgress < 0.95 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 pointer-events-none flex flex-col items-center gap-1">
-          <div className="glass-panel px-4 py-1.5 rounded-full flex items-center gap-2 text-xs font-mono text-slate-300">
+        <div className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 pointer-events-none flex flex-col items-center gap-1">
+          <div className="glass-panel px-3 sm:px-4 py-1 sm:py-1.5 rounded-full flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs font-mono text-slate-300">
             <span className="text-cyan-400 font-bold">SCROLL</span>
             <span>FORWARD TO EXPLORE CITY</span>
           </div>
-          <ChevronDown className="w-4 h-4 text-cyan-400 animate-bounce" />
+          <ChevronDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-cyan-400 animate-bounce" />
         </div>
       )}
     </>
